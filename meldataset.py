@@ -14,12 +14,17 @@ import torch.nn.functional as F
 import torchaudio
 from torch.utils.data import DataLoader
 
-from g2p_en import G2p
+# Remove the English G2P import
+# from g2p_en import G2p
 
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 from text_utils import TextCleaner
+
+# Add the Arabic G2P implementation
+from arabic_g2p import ArabicG2P  # You'll create this file
+
 np.random.seed(1)
 random.seed(1)
 DEFAULT_DICT_PATH = osp.join(osp.dirname(__file__), 'word_index_dict.txt')
@@ -53,7 +58,8 @@ class MelDataset(torch.utils.data.Dataset):
         self.to_melspec = torchaudio.transforms.MelSpectrogram(**MEL_PARAMS)
         self.mean, self.std = -4, 4
         
-        self.g2p = G2p()
+        # Replace English G2P with Arabic G2P
+        self.g2p = ArabicG2P()
 
     def __len__(self):
         return len(self.data_list)
@@ -81,11 +87,22 @@ class MelDataset(torch.utils.data.Dataset):
         speaker_id = int(speaker_id)
         wave, sr = sf.read(wave_path)
 
-        # phonemize the text
-        ps = self.g2p(text.replace('-', ' '))
-        if "'" in ps:
-            ps.remove("'")
-        text = self.text_cleaner(ps)
+        # Use Arabic G2P instead of English
+        # Convert Arabic text to phonemes
+        phoneme_sequence = self.g2p.process_utterance(text)
+        
+        # Parse the phoneme sequence and convert to list
+        # The Arabic G2P returns a string with '+' separators
+        phonemes = []
+        for word_phonemes in phoneme_sequence.split(' + '):
+            if word_phonemes.strip():
+                phonemes.extend(word_phonemes.split())
+        
+        # Remove any empty strings
+        phonemes = [p for p in phonemes if p]
+        
+        # Convert phonemes to indices using text_cleaner
+        text = self.text_cleaner(phonemes)
         blank_index = self.text_cleaner.word_index_dictionary[" "]
         text.insert(0, blank_index) # add a blank at the beginning (silence)
         text.append(blank_index) # add a blank at the end (silence)
@@ -93,8 +110,6 @@ class MelDataset(torch.utils.data.Dataset):
         text = torch.LongTensor(text)
 
         return wave, text, speaker_id
-
-
 
 
 class Collater(object):
@@ -139,7 +154,6 @@ class Collater(object):
             return texts, input_lengths, mels, output_lengths, paths, waves
 
         return texts, input_lengths, mels, output_lengths
-
 
 
 def build_dataloader(path_list,
